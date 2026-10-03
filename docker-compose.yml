@@ -1,0 +1,15 @@
+services:
+  ti:
+    build: .
+    image: ti:local
+    container_name: ti
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+    # Uploaded PDFs and indexes will live here in later phases.
+    volumes:
+      - ./data:/app/data

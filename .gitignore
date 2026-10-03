@@ -1,0 +1,32 @@
+# ENV #
+#######
+.env
+.env.*
+!.env.example
+
+# NODE #
+########
+node_modules
+npm-debug.log
+package-lock.json
+
+# TYPESCRIPT #
+##############
+*.tsbuildinfo
+
+# DATA (uploaded PDFs, indexes, etc. — never commit) #
+######################################################
+data/
+
+# OS / EDITOR #
+###############
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.vscode
+.history
+coverage

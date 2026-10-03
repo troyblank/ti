@@ -1,0 +1,40 @@
+{
+	"name": "ti",
+	"version": "0.1.0",
+	"description": "TI (Troy Intelligence) — self-hosted AI API for asking questions about uploaded PDF documents.",
+	"private": true,
+	"type": "module",
+	"packageManager": "yarn@1.22.22",
+	"engines": {
+		"node": ">=24"
+	},
+	"scripts": {
+		"start": "node ./src/serve.ts",
+		"dev": "node --watch ./src/serve.ts",
+		"lint": "eslint . && tsc",
+		"test": "jest --coverage"
+	},
+	"dependencies": {
+		"cors": "2.8.6",
+		"dotenv": "18.0.5",
+		"express": "5.2.1"
+	},
+	"devDependencies": {
+		"@eslint/js": "10.0.1",
+		"@jest/globals": "30.5.2",
+		"@types/cors": "2.8.19",
+		"@types/express": "5.0.6",
+		"@types/jest": "30.0.0",
+		"@types/node": "26.6.4",
+		"@types/supertest": "7.2.1",
+		"eslint": "10.12.0",
+		"globals": "17.13.0",
+		"jest": "30.5.2",
+		"supertest": "7.3.1",
+		"ts-jest": "29.4.14",
+		"typescript": "5.9.3",
+		"typescript-eslint": "8.71.0"
+	},
+	"author": "Troy Blank",
+	"license": "BSD-3-Clause"
+}

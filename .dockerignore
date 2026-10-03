@@ -1,0 +1,14 @@
+node_modules
+coverage
+data
+.env
+.env.*
+!.env.example
+.git
+.github
+.vscode
+.history
+*.test.ts
+*.md
+*.tsbuildinfo
+.DS_Store
