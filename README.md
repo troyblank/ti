@@ -45,8 +45,15 @@ No build step is needed — Node 24 runs the TypeScript source directly via type
 | ------ | ------------- | ----------------------------------------- |
 | GET    | `/health`     | Liveness check. Returns `{ "status": "ok" }`. |
 | GET    | `/api/health` | Same as above, under the `/api` prefix.   |
+| *any*  | `/api/documents` | Placeholder — returns `501`. PDF upload lands in Phase 3. |
+| *any*  | `/api/chat` | Placeholder — returns `501`. Chat lands in Phase 2. |
+| *any*  | `/api/conversations` | Placeholder — returns `501`. Conversation history lands in Phase 8. |
 
-Future endpoints (`/api/documents`, `/api/chat`, `/api/conversations`) will be added under `/api` as the roadmap progresses. Unknown routes return a JSON `404`.
+Errors are always JSON of the form `{ "error": "<HTTP status text>" }`:
+
+* Unknown routes return `404`.
+* Client errors raised by middleware (e.g. malformed JSON → `400`, oversized body → `413`) keep their status.
+* Anything else is logged and returned as a generic `500`.
 
 ## Docker
 
@@ -79,7 +86,14 @@ src/
   serve.ts          # entrypoint: loads env, starts the HTTP server
   app.ts            # builds the Express app (middleware, routers, 404/500 handlers)
   config.ts         # environment-based configuration
+  middleware/
+    errors.ts       # JSON 404 / 501 / error handlers
   api/
     index.ts        # /api router — mounts feature routers
     health/         # GET /api/health
+    documents/      # placeholder (501)
+    chat/           # placeholder (501)
+    conversations/  # placeholder (501)
 ```
+
+To add a feature, create `src/api/<feature>/index.ts` exporting a `Router`, then mount it in `src/api/index.ts`.

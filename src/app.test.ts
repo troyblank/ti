@@ -1,16 +1,11 @@
-import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import express from 'express';
+import { describe, expect, it } from '@jest/globals';
 import request from 'supertest';
-import { createApp, errorHandler } from './app.ts';
+import { createApp } from './app.ts';
 
 const ORIGIN = 'http://localhost:5173';
 
 describe('TI API', () => {
 	const app = createApp({ corsOrigins: [ORIGIN] });
-
-	afterEach(() => {
-		jest.restoreAllMocks();
-	});
 
 	describe('GET /health', () => {
 		it('Reports the service is healthy with an ok status.', async () => {
@@ -60,22 +55,28 @@ describe('TI API', () => {
 		});
 	});
 
-	describe('Unhandled errors', () => {
-		it('Logs the error and responds with a generic JSON 500.', async () => {
-			const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
-			const failure = new Error('boom');
-			const brokenApp = express();
 
-			brokenApp.get('/explode', () => {
-				throw failure;
-			});
-			brokenApp.use(errorHandler);
+	describe('Planned API areas', () => {
+		it.each(['/api/documents', '/api/chat', '/api/conversations'])('Responds to %s with a JSON 501 until it is built.', async (path) => {
+			const response = await request(app).post(path).send({});
 
-			const response = await request(brokenApp).get('/explode');
+			expect(response.status).toBe(501);
+			expect(response.body).toEqual({ error: 'Not Implemented' });
+		});
 
-			expect(response.status).toBe(500);
-			expect(response.body).toEqual({ error: 'Internal Server Error' });
-			expect(consoleError).toHaveBeenCalledWith(failure);
+		it('Responds with a 501 for nested paths under a planned area.', async () => {
+			const response = await request(app).get('/api/documents/123');
+
+			expect(response.status).toBe(501);
+		});
+	});
+
+	describe('Request bodies', () => {
+		it('Responds with a JSON 400 when the body is malformed JSON.', async () => {
+			const response = await request(app).post('/api/chat').set('Content-Type', 'application/json').send('{ not json');
+
+			expect(response.status).toBe(400);
+			expect(response.body).toEqual({ error: 'Bad Request' });
 		});
 	});
 });

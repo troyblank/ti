@@ -134,6 +134,8 @@ When an architectural decision is made, document it here.
 * **CORS:** `ti` only allows browser origins listed in `CORS_ORIGIN`; `ti-web`'s origin must be added there.
 * **Docker:** `node:24-alpine` image running as the non-root `node` user, with a `/health` `HEALTHCHECK`. `docker-compose.yml` mounts `./data` for future PDF/index storage (git-ignored).
 * **Frontend (`ti-web`):** Vite + React 19 + TypeScript. API base URL comes from `VITE_TI_API_URL` (default `http://localhost:3000`). No data-fetching or UI libraries yet — add them when a feature needs them.
+* **API structure (`ti`):** `documents`, `chat` and `conversations` routers are mounted under `/api` as placeholders that respond `501 Not Implemented` until their roadmap step replaces them. Shared HTTP middleware lives in `src/middleware/`.
+* **Error responses:** every error is JSON `{ "error": "<HTTP status text>" }`. Client (4xx) errors raised by middleware keep their status; everything else is logged and returned as a generic `500` so internals never leak.
 * **Testing:** `ti` uses Jest + supertest; `ti-web` uses Vitest + React Testing Library (Vitest handles `import.meta.env` natively under Vite). Both enforce 100% coverage.
 
 ---
