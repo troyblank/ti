@@ -36,6 +36,7 @@ The API will be available at `http://localhost:3000`.
 | yarn start  | Runs the API.                                            |
 | yarn lint   | Checks repo for any lint or tsc issues.                  |
 | yarn test   | Runs unit tests with coverage (100% threshold).          |
+| yarn package | Builds `dist/ti-deploy.tar.gz` for deploying to the Synology. |
 
 No build step is needed — Node 24 runs the TypeScript source directly via type stripping. Source files must therefore stick to [erasable syntax](https://www.typescriptlang.org/tsconfig/#erasableSyntaxOnly) (no `enum`, no parameter properties, etc.), which `tsc` enforces.
 
@@ -77,7 +78,28 @@ curl http://localhost:3000/health
 # {"status":"ok"}
 ```
 
-On the Synology, use Container Manager → Project and point it at this repo's `docker-compose.yml`. The `./data` volume is where uploaded PDFs and indexes will be stored in later phases; it is git-ignored.
+## Deploying to the Synology
+
+TI runs on the NAS through **Container Manager** (DSM 7.2+, installed from Package Center). The NAS builds the image itself from a small deploy bundle, so it needs neither git nor the full repo.
+
+### First deploy
+
+1. On your machine, run `yarn lint && yarn test && yarn package`. This creates `dist/ti-deploy.tar.gz` containing only what Docker needs (`Dockerfile`, `docker-compose.yml`, `package.json`, `yarn.lock`, `src/` without tests, `.env.example`).
+2. In **File Station**, create `docker/ti` (i.e. `/volume1/docker/ti`), upload the bundle there, then right-click it → **Extract** → *Extract here*. Delete the `.tar.gz` afterwards.
+3. Create the `.env` file in that folder from `.env.example` (e.g. copy it on your machine, edit it, and upload it as `.env`). Set `CORS_ORIGIN` to the origin the browser loads `ti-web` from — e.g. `http://localhost:5173` when running `ti-web`'s dev server on your laptop, even though the API itself is on the NAS. Compose reads `PORT` and `CORS_ORIGIN` from this file.
+4. Create a `data` folder in that same directory. The container runs as the `node` user (uid 1000), so it must be able to write there once PDF uploads arrive (Phase 3). Via SSH: `sudo chown 1000:1000 /volume1/docker/ti/data`; or in File Station → `data` → Properties → Permission, grant *Everyone* read/write.
+5. **Container Manager → Project → Create**: name `ti`, path `/volume1/docker/ti`, source *Use existing docker-compose.yml*. Finish — it builds the image and starts the container.
+6. From your machine, check `curl http://<nas-ip>:3000/health` returns `{"status":"ok"}`. Container Manager should also show the container as *healthy*. If the request hangs, allow port 3000 from your LAN under Control Panel → Security → Firewall.
+
+### Updating
+
+1. Run `yarn lint && yarn test && yarn package` again.
+2. In File Station, delete the old `src` folder in `docker/ti` (so files removed from the repo don't linger), upload the new bundle and extract it, choosing to overwrite existing files. `.env` and `data/` are not in the bundle, so they are left untouched.
+3. **Container Manager → Project → `ti` → Action → Build** to rebuild the image and restart the container.
+
+### Remote access
+
+For now TI is only reachable on the local network. It must not be exposed to the Internet until authentication exists (Phase 6); remote access via a secure tunnel is Phase 7.
 
 ## Project structure
 
