@@ -12,7 +12,8 @@
 		"start": "node ./src/serve.ts",
 		"dev": "node --watch ./src/serve.ts",
 		"lint": "eslint . && tsc",
-		"test": "jest --coverage"
+		"test": "jest --coverage",
+		"package": "mkdir -p dist && tar -czf dist/ti-deploy.tar.gz --exclude='*.test.ts' Dockerfile .dockerignore docker-compose.yml .env.example package.json yarn.lock src"
 	},
 	"dependencies": {
 		"cors": "2.8.6",
