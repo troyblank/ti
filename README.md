@@ -27,6 +27,9 @@ The API will be available at `http://localhost:3000`.
 | `PORT` | No | `3000` | Port the HTTP server listens on. |
 | `HOST` | No | `0.0.0.0` | Interface to bind to. |
 | `CORS_ORIGIN` | No | *(none)* | Comma-separated list of browser origins allowed to call the API, e.g. `http://localhost:5173`. Empty disallows all cross-origin browser requests. |
+| `OLLAMA_URL` | No | `http://localhost:11434` | Base URL of the Ollama server. Inside Docker Compose this is set to `http://ollama:11434`. |
+| `OLLAMA_PORT` | No | `11434` | Loopback port Docker Compose publishes Ollama on, so `yarn dev` on the host can reach it. Must match `OLLAMA_URL`. |
+| `OLLAMA_MODEL` | No | `llama3.2:3b` | Ollama model used to answer questions. Must be pulled first — see [Local LLM](#local-llm-ollama). |
 
 ## Commands
 
@@ -58,13 +61,13 @@ Errors are always JSON of the form `{ "error": "<HTTP status text>" }`:
 
 ## Docker
 
-Build and run locally:
+Build and run locally (starts both `ti` and Ollama):
 
 ```sh
 docker compose up --build
 ```
 
-Or without compose:
+Or run just the API without compose:
 
 ```sh
 docker build -t ti .
@@ -78,24 +81,71 @@ curl http://localhost:3000/health
 # {"status":"ok"}
 ```
 
+## Local LLM (Ollama)
+
+TI's AI is a local LLM served by [Ollama](https://ollama.com), which `docker-compose.yml` runs as the `ollama` service alongside `ti`. No external AI API is involved: once a model has been downloaded, Ollama works with no Internet access at all.
+
+* Ollama is **not** published on the network. Compose binds it to `127.0.0.1:11434` on the Docker host only, so `ti` (over the compose network as `http://ollama:11434`) and the host itself can reach it, but nothing else can.
+* Downloaded models are stored in `./ollama` (git-ignored), kept separate from `ti`'s `./data`, so they survive container rebuilds.
+* The model is chosen with `OLLAMA_MODEL`. The default, `llama3.2:3b` (~2GB), is the practical sweet spot for CPU-only hardware with 8–16GB of RAM. Models larger than 7B are not realistic on a NAS.
+
+### Pulling the model
+
+A model has to be downloaded once before it can be used. This is the only step that needs Internet access:
+
+```sh
+docker compose up -d ollama
+docker compose exec ollama ollama pull llama3.2:3b
+```
+
+Use the same name you set in `OLLAMA_MODEL`. `docker compose exec ollama ollama list` shows what is installed.
+
+### Verifying the model answers questions
+
+Chat with it directly through the Ollama CLI inside the container:
+
+```sh
+docker compose exec ollama ollama run llama3.2:3b "In one sentence, what is a NAS?"
+```
+
+Or call the HTTP API from the host — this is the same API `ti` will use for `/api/chat`:
+
+```sh
+curl http://localhost:11434/api/generate -d '{
+  "model": "llama3.2:3b",
+  "prompt": "In one sentence, what is a NAS?",
+  "stream": false
+}'
+```
+
+The response JSON includes the answer in `"response"`. Expect a few tokens per second on a CPU-only NAS; the first request after a restart is slower while the model loads into memory.
+
+### Running `ti` on the host with Ollama in Docker
+
+`yarn dev` runs the API outside Docker. The default `OLLAMA_URL=http://localhost:11434` in `.env` points it at the loopback port compose publishes, so just start Ollama first: `docker compose up -d ollama`.
+
 ## Deploying to the Synology
 
 TI runs on the NAS through **Container Manager** (DSM 7.2+, installed from Package Center). The NAS builds the image itself from a small deploy bundle, so it needs neither git nor the full repo.
+
+Ollama runs CPU-only on the NAS, so the hardware matters. The Ollama image supports both x86-64 and arm64, but most ARM-based Synology units have too little RAM and too slow a CPU to be usable, so in practice you want an x86 (Intel/AMD) model with at least 8GB of RAM for a 3B model (`llama3.2:3b` needs roughly 6GB free while answering). Expect a few tokens per second.
 
 ### First deploy
 
 1. On your machine, run `yarn lint && yarn test && yarn package`. This creates `dist/ti-deploy.tar.gz` containing only what Docker needs (`Dockerfile`, `docker-compose.yml`, `package.json`, `yarn.lock`, `src/` without tests, `.env.example`).
 2. In **File Station**, create `docker/ti` (i.e. `/volume1/docker/ti`), upload the bundle there, then right-click it → **Extract** → *Extract here*. Delete the `.tar.gz` afterwards.
-3. Create the `.env` file in that folder from `.env.example` (e.g. copy it on your machine, edit it, and upload it as `.env`). Set `CORS_ORIGIN` to the origin the browser loads `ti-web` from — e.g. `http://localhost:5173` when running `ti-web`'s dev server on your laptop, even though the API itself is on the NAS. Compose reads `PORT` and `CORS_ORIGIN` from this file.
-4. Create a `data` folder in that same directory. The container runs as the `node` user (uid 1000), so it must be able to write there once PDF uploads arrive (Phase 3). Via SSH: `sudo chown 1000:1000 /volume1/docker/ti/data`; or in File Station → `data` → Properties → Permission, grant *Everyone* read/write.
-5. **Container Manager → Project → Create**: name `ti`, path `/volume1/docker/ti`, source *Use existing docker-compose.yml*. Finish — it builds the image and starts the container.
-6. From your machine, check `curl http://<nas-ip>:3000/health` returns `{"status":"ok"}`. Container Manager should also show the container as *healthy*. If the request hangs, allow port 3000 from your LAN under Control Panel → Security → Firewall.
+3. Create the `.env` file in that folder from `.env.example` (e.g. copy it on your machine, edit it, and upload it as `.env`). Set `CORS_ORIGIN` to the origin the browser loads `ti-web` from — e.g. `http://localhost:5173` when running `ti-web`'s dev server on your laptop, even though the API itself is on the NAS. Set `OLLAMA_MODEL` if you want something other than the default. Compose reads `PORT`, `CORS_ORIGIN`, `OLLAMA_PORT` and `OLLAMA_MODEL` from this file.
+4. Create a `data` folder in that same directory. The `ti` container runs as the `node` user (uid 1000), so it must be able to write there once PDF uploads arrive (Phase 3). Via SSH: `sudo chown 1000:1000 /volume1/docker/ti/data`; or in File Station → `data` → Properties → Permission, grant *Everyone* read/write. Ollama creates its own `ollama` folder next to it for its models.
+5. **Container Manager → Project → Create**: name `ti`, path `/volume1/docker/ti`, source *Use existing docker-compose.yml*. Finish — it pulls the Ollama image, builds the `ti` image and starts both containers.
+6. Download the model (the only step that needs Internet from the NAS). In **Container Manager → Container → `ollama` → Details → Terminal**, click *Create* to open a `bash` shell and run `ollama pull llama3.2:3b` (or whatever `OLLAMA_MODEL` is). Via SSH instead: `sudo docker exec ollama ollama pull llama3.2:3b`. The download is ~2GB and lands in `ollama/`.
+7. In the same terminal, verify the model answers: `ollama run llama3.2:3b "In one sentence, what is a NAS?"`. The first answer takes a while as the model loads.
+8. From your machine, check `curl http://<nas-ip>:3000/health` returns `{"status":"ok"}`. Container Manager should show both containers as *healthy*. If the request hangs, allow port 3000 from your LAN under Control Panel → Security → Firewall. Ollama's port 11434 is bound to the NAS's loopback only and must **not** be opened.
 
 ### Updating
 
 1. Run `yarn lint && yarn test && yarn package` again.
-2. In File Station, delete the old `src` folder in `docker/ti` (so files removed from the repo don't linger), upload the new bundle and extract it, choosing to overwrite existing files. `.env` and `data/` are not in the bundle, so they are left untouched.
-3. **Container Manager → Project → `ti` → Action → Build** to rebuild the image and restart the container.
+2. In File Station, delete the old `src` folder in `docker/ti` (so files removed from the repo don't linger), upload the new bundle and extract it, choosing to overwrite existing files. `.env`, `data/` and `ollama/` (the downloaded models) are not in the bundle, so they are left untouched.
+3. **Container Manager → Project → `ti` → Action → Build** to rebuild the image and restart the containers. Ollama keeps its models, so there is nothing to re-download.
 
 ### Remote access
 

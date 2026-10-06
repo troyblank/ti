@@ -2,10 +2,14 @@ export type Config = {
 	port: number;
 	host: string;
 	corsOrigins: string[];
+	ollamaUrl: string;
+	ollamaModel: string;
 };
 
 const DEFAULT_PORT = 3000;
 const DEFAULT_HOST = '0.0.0.0';
+const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
+const DEFAULT_OLLAMA_MODEL = 'llama3.2:3b';
 
 const parsePort = (raw: string | undefined): number => {
 	if (raw === undefined || raw.trim() === '') {
@@ -27,10 +31,36 @@ const parseList = (raw: string | undefined): string[] =>
 		.map((value) => value.trim())
 		.filter((value) => value !== '');
 
+// Ollama is only ever reached over plain HTTP(S); anything else is a typo.
+const parseOllamaUrl = (raw: string | undefined): string => {
+	const value = raw?.trim();
+
+	if (value === undefined || value === '') {
+		return DEFAULT_OLLAMA_URL;
+	}
+
+	let url: URL;
+
+	try {
+		url = new URL(value);
+	} catch {
+		throw new Error(`Invalid OLLAMA_URL "${raw}": must be an absolute http(s) URL.`);
+	}
+
+	if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+		throw new Error(`Invalid OLLAMA_URL "${raw}": must be an absolute http(s) URL.`);
+	}
+
+	// Normalise away a trailing slash so paths can be appended predictably.
+	return url.href.replace(/\/$/, '');
+};
+
 // Builds the application config from environment variables.
 // Accepts an env object so tests can pass their own instead of mutating process.env.
 export const loadConfig = (env: NodeJS.ProcessEnv = process.env): Config => ({
 	port: parsePort(env.PORT),
 	host: env.HOST?.trim() || DEFAULT_HOST,
 	corsOrigins: parseList(env.CORS_ORIGIN),
+	ollamaUrl: parseOllamaUrl(env.OLLAMA_URL),
+	ollamaModel: env.OLLAMA_MODEL?.trim() || DEFAULT_OLLAMA_MODEL,
 });
