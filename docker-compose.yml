@@ -4,12 +4,39 @@ services:
     image: ti:local
     container_name: ti
     restart: unless-stopped
+    depends_on:
+      - ollama
     ports:
       - "${PORT:-3000}:3000"
     environment:
       HOST: 0.0.0.0
       PORT: 3000
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      # Containers reach each other by service name on the compose network.
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
     # Uploaded PDFs and indexes will live here in later phases.
     volumes:
       - ./data:/app/data
+
+  # Local LLM. Runs fully offline once a model has been pulled; the only time it
+  # needs the Internet is `ollama pull`. Nothing else should talk to it but `ti`.
+  ollama:
+    # Pinned so every machine runs the same Ollama; bump deliberately.
+    image: ollama/ollama:0.40.0
+    container_name: ollama
+    restart: unless-stopped
+    # Bound to loopback only, so the host can verify the model (and `yarn dev`
+    # can reach it) without exposing Ollama to the LAN.
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
+    # Downloaded models persist here so they survive container rebuilds. Kept out
+    # of ./data so ti's data volume never sees Ollama's models or its private key.
+    volumes:
+      - ./ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3

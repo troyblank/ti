@@ -7,13 +7,17 @@ describe('loadConfig', () => {
 			port: 3000,
 			host: '0.0.0.0',
 			corsOrigins: [],
+			ollamaUrl: 'http://localhost:11434',
+			ollamaModel: 'llama3.2:3b',
 		});
 	});
 
-	it('Treats blank PORT and HOST values as unset.', () => {
-		expect(loadConfig({ PORT: '  ', HOST: '  ' })).toMatchObject({
+	it('Treats blank PORT, HOST, OLLAMA_URL and OLLAMA_MODEL values as unset.', () => {
+		expect(loadConfig({ PORT: '  ', HOST: '  ', OLLAMA_URL: '  ', OLLAMA_MODEL: '  ' })).toMatchObject({
 			port: 3000,
 			host: '0.0.0.0',
+			ollamaUrl: 'http://localhost:11434',
+			ollamaModel: 'llama3.2:3b',
 		});
 	});
 
@@ -50,5 +54,20 @@ describe('loadConfig', () => {
 			'http://localhost:5173',
 			'https://ti.example.com',
 		]);
+	});
+
+	it('Reads the Ollama server URL from the environment, dropping any trailing slash.', () => {
+		expect(loadConfig({ OLLAMA_URL: 'http://ollama:11434/' }).ollamaUrl).toBe('http://ollama:11434');
+		expect(loadConfig({ OLLAMA_URL: ' https://nas.local:11434 ' }).ollamaUrl).toBe('https://nas.local:11434');
+	});
+
+	it('Rejects an OLLAMA_URL that is not an absolute http(s) URL.', () => {
+		expect(() => loadConfig({ OLLAMA_URL: 'ollama:11434' })).toThrow(/Invalid OLLAMA_URL/);
+		expect(() => loadConfig({ OLLAMA_URL: 'not a url' })).toThrow(/Invalid OLLAMA_URL/);
+		expect(() => loadConfig({ OLLAMA_URL: 'ftp://ollama:11434' })).toThrow(/Invalid OLLAMA_URL/);
+	});
+
+	it('Reads the Ollama model name from the environment.', () => {
+		expect(loadConfig({ OLLAMA_MODEL: ' qwen2.5:3b ' }).ollamaModel).toBe('qwen2.5:3b');
 	});
 });

@@ -2,6 +2,7 @@ node_modules
 coverage
 dist
 data
+ollama
 .env
 .env.*
 !.env.example

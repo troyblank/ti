@@ -138,6 +138,13 @@ When an architectural decision is made, document it here.
 * **Error responses:** every error is JSON `{ "error": "<HTTP status text>" }`. Client (4xx) errors raised by middleware keep their status; everything else is logged and returned as a generic `500` so internals never leak.
 * **Testing:** `ti` uses Jest + supertest; `ti-web` uses Vitest + React Testing Library (Vitest handles `import.meta.env` natively under Vite). Both enforce 100% coverage.
 
+## Phase 2
+
+* **LLM runtime:** Ollama, run as an `ollama` service in `docker-compose.yml` next to `ti` (one Container Manager project on the Synology). CPU-only; no external AI API. Once a model is pulled it needs no Internet.
+* **Model:** configurable via `OLLAMA_MODEL`, defaulting to `llama3.2:3b` — the practical ceiling for a CPU-only NAS with 8–16GB RAM. Models are pulled manually once (`ollama pull`) and persisted in `./ollama` (a sibling of `./data`, so `ti` never sees them) so rebuilds don't re-download them.
+* **Network exposure:** Ollama is reachable by `ti` over the compose network (`http://ollama:11434`) and published on the Docker host's loopback only (`127.0.0.1:11434`) for verification and `yarn dev`. It is never exposed to the LAN or Internet; only `ti` talks to it.
+* **Configuration:** `ti` reads `OLLAMA_URL` and `OLLAMA_MODEL` in `src/config.ts` (validated like the other variables) so the Chat API can be built on them without further plumbing.
+
 ---
 
 # Development Roadmap
