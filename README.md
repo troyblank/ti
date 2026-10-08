@@ -44,6 +44,8 @@ The API will be available at `http://localhost:3000`.
 | yarn test   | Runs unit tests with coverage (100% threshold).          |
 | yarn package | Builds `dist/ti-deploy.tar.gz` for deploying to the Synology. |
 
+GitHub Actions ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)) runs `yarn lint` and `yarn test` on every pull request and on pushes to `main`.
+
 No build step is needed — Node 24 runs the TypeScript source directly via type stripping. Source files must therefore stick to [erasable syntax](https://www.typescriptlang.org/tsconfig/#erasableSyntaxOnly) (no `enum`, no parameter properties, etc.), which `tsc` enforces.
 
 ## API
