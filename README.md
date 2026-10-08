@@ -16,7 +16,8 @@ See [PLAN.md](./PLAN.md) for the full roadmap and architectural decisions.
 1. run `nvm use`
 2. run `yarn install`
 3. copy `.env.example` to `.env` and adjust the variables below
-4. run `yarn dev`
+4. run `yarn ollama` and leave it running. `yarn dev` talks to Ollama at `http://localhost:11434`, so the container has to be up first. The model also has to be pulled once — see [Local LLM](#local-llm-ollama).
+5. run `yarn dev`
 
 The API will be available at `http://localhost:3000`.
 
@@ -30,12 +31,14 @@ The API will be available at `http://localhost:3000`.
 | `OLLAMA_URL` | No | `http://localhost:11434` | Base URL of the Ollama server. Inside Docker Compose this is set to `http://ollama:11434`. |
 | `OLLAMA_PORT` | No | `11434` | Loopback port Docker Compose publishes Ollama on, so `yarn dev` on the host can reach it. Must match `OLLAMA_URL`. |
 | `OLLAMA_MODEL` | No | `llama3.2:3b` | Ollama model used to answer questions. Must be pulled first — see [Local LLM](#local-llm-ollama). |
+| `OLLAMA_TIMEOUT_MS` | No | `240000` | How long `POST /api/chat` waits for the model before returning `504`. Keep it under `300000`. |
 
 ## Commands
 
 | Command     | Result                                                   |
 | ----------- | -------------------------------------------------------- |
-| yarn dev    | Runs the API and restarts on file changes.               |
+| yarn ollama | Starts the Ollama container. Required before `yarn dev`. |
+| yarn dev    | Runs the API and restarts on file changes. Ollama must already be running. |
 | yarn start  | Runs the API.                                            |
 | yarn lint   | Checks repo for any lint or tsc issues.                  |
 | yarn test   | Runs unit tests with coverage (100% threshold).          |
@@ -49,15 +52,23 @@ No build step is needed — Node 24 runs the TypeScript source directly via type
 | ------ | ------------- | ----------------------------------------- |
 | GET    | `/health`     | Liveness check. Returns `{ "status": "ok" }`. |
 | GET    | `/api/health` | Same as above, under the `/api` prefix.   |
+| POST   | `/api/chat` | Asks the local LLM. Body `{ "message": "..." }`, reply `{ "message": "<assistant text>" }`. |
 | *any*  | `/api/documents` | Placeholder — returns `501`. PDF upload lands in Phase 3. |
-| *any*  | `/api/chat` | Placeholder — returns `501`. Chat lands in Phase 2. |
 | *any*  | `/api/conversations` | Placeholder — returns `501`. Conversation history lands in Phase 8. |
+
+```sh
+curl http://localhost:3000/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Hello"}'
+```
 
 Errors are always JSON of the form `{ "error": "<HTTP status text>" }`:
 
 * Unknown routes return `404`.
+* A `POST /api/chat` body without a non-empty string `message` returns `400`; a `message` over 4,000 characters returns `413`.
+* `POST /api/chat` returns `504` if the model hasn't answered within `OLLAMA_TIMEOUT_MS`. If the client disconnects first, the Ollama request is cancelled.
 * Client errors raised by middleware (e.g. malformed JSON → `400`, oversized body → `413`) keep their status.
-* Anything else is logged and returned as a generic `500`.
+* Anything else, including a failure to reach Ollama, is logged and returned as a generic `500`.
 
 ## Docker
 
@@ -94,7 +105,7 @@ TI's AI is a local LLM served by [Ollama](https://ollama.com), which `docker-com
 A model has to be downloaded once before it can be used. This is the only step that needs Internet access:
 
 ```sh
-docker compose up -d ollama
+yarn ollama
 docker compose exec ollama ollama pull llama3.2:3b
 ```
 
@@ -108,7 +119,7 @@ Chat with it directly through the Ollama CLI inside the container:
 docker compose exec ollama ollama run llama3.2:3b "In one sentence, what is a NAS?"
 ```
 
-Or call the HTTP API from the host — this is the same API `ti` will use for `/api/chat`:
+Or call Ollama's HTTP API from the host to check the model directly. TI does not use this endpoint; `POST /api/chat` calls Ollama's `/api/chat` instead:
 
 ```sh
 curl http://localhost:11434/api/generate -d '{
@@ -122,7 +133,7 @@ The response JSON includes the answer in `"response"`. Expect a few tokens per s
 
 ### Running `ti` on the host with Ollama in Docker
 
-`yarn dev` runs the API outside Docker. The default `OLLAMA_URL=http://localhost:11434` in `.env` points it at the loopback port compose publishes, so just start Ollama first: `docker compose up -d ollama`.
+`yarn dev` runs the API outside Docker. The default `OLLAMA_URL=http://localhost:11434` in `.env` points it at the loopback port compose publishes, so start Ollama first with `yarn ollama` and leave that container running. Then `POST /api/chat` can reach the model. The first reply after a restart is slower while the model loads into memory.
 
 ## Deploying to the Synology
 
@@ -134,7 +145,7 @@ Ollama runs CPU-only on the NAS, so the hardware matters. The Ollama image suppo
 
 1. On your machine, run `yarn lint && yarn test && yarn package`. This creates `dist/ti-deploy.tar.gz` containing only what Docker needs (`Dockerfile`, `docker-compose.yml`, `package.json`, `yarn.lock`, `src/` without tests, `.env.example`).
 2. In **File Station**, create `docker/ti` (i.e. `/volume1/docker/ti`), upload the bundle there, then right-click it → **Extract** → *Extract here*. Delete the `.tar.gz` afterwards.
-3. Create the `.env` file in that folder from `.env.example` (e.g. copy it on your machine, edit it, and upload it as `.env`). Set `CORS_ORIGIN` to the origin the browser loads `ti-web` from — e.g. `http://localhost:5173` when running `ti-web`'s dev server on your laptop, even though the API itself is on the NAS. Set `OLLAMA_MODEL` if you want something other than the default. Compose reads `PORT`, `CORS_ORIGIN`, `OLLAMA_PORT` and `OLLAMA_MODEL` from this file.
+3. Create the `.env` file in that folder from `.env.example` (e.g. copy it on your machine, edit it, and upload it as `.env`). Set `CORS_ORIGIN` to the origin the browser loads `ti-web` from — e.g. `http://localhost:5173` when running `ti-web`'s dev server on your laptop, even though the API itself is on the NAS. Set `OLLAMA_MODEL` if you want something other than the default. Compose reads `PORT`, `CORS_ORIGIN`, `OLLAMA_PORT`, `OLLAMA_MODEL` and `OLLAMA_TIMEOUT_MS` from this file.
 4. Create a `data` folder in that same directory. The `ti` container runs as the `node` user (uid 1000), so it must be able to write there once PDF uploads arrive (Phase 3). Via SSH: `sudo chown 1000:1000 /volume1/docker/ti/data`; or in File Station → `data` → Properties → Permission, grant *Everyone* read/write. Ollama creates its own `ollama` folder next to it for its models.
 5. **Container Manager → Project → Create**: name `ti`, path `/volume1/docker/ti`, source *Use existing docker-compose.yml*. Finish — it pulls the Ollama image, builds the `ti` image and starts both containers.
 6. Download the model (the only step that needs Internet from the NAS). In **Container Manager → Container → `ollama` → Details → Terminal**, click *Create* to open a `bash` shell and run `ollama pull llama3.2:3b` (or whatever `OLLAMA_MODEL` is). Via SSH instead: `sudo docker exec ollama ollama pull llama3.2:3b`. The download is ~2GB and lands in `ollama/`.
@@ -164,8 +175,9 @@ src/
     index.ts        # /api router — mounts feature routers
     health/         # GET /api/health
     documents/      # placeholder (501)
-    chat/           # placeholder (501)
+    chat/           # POST /api/chat — asks the local LLM
     conversations/  # placeholder (501)
+  utils/            # small shared helpers (e.g. isRecord)
 ```
 
 To add a feature, create `src/api/<feature>/index.ts` exporting a `Router`, then mount it in `src/api/index.ts`.

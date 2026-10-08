@@ -5,7 +5,7 @@ export type ErrorResponse = {
 	error: string;
 };
 
-const sendError = (response: Response, status: number) => {
+export const sendError = (response: Response, status: number) => {
 	const body: ErrorResponse = { error: STATUS_CODES[status] ?? 'Error' };
 
 	response.status(status).json(body);
