@@ -9,15 +9,17 @@ describe('loadConfig', () => {
 			corsOrigins: [],
 			ollamaUrl: 'http://localhost:11434',
 			ollamaModel: 'llama3.2:3b',
+			ollamaTimeoutMs: 240000,
 		});
 	});
 
-	it('Treats blank PORT, HOST, OLLAMA_URL and OLLAMA_MODEL values as unset.', () => {
-		expect(loadConfig({ PORT: '  ', HOST: '  ', OLLAMA_URL: '  ', OLLAMA_MODEL: '  ' })).toMatchObject({
+	it('Treats blank PORT, HOST, OLLAMA_URL, OLLAMA_MODEL and OLLAMA_TIMEOUT_MS values as unset.', () => {
+		expect(loadConfig({ PORT: '  ', HOST: '  ', OLLAMA_URL: '  ', OLLAMA_MODEL: '  ', OLLAMA_TIMEOUT_MS: '  ' })).toMatchObject({
 			port: 3000,
 			host: '0.0.0.0',
 			ollamaUrl: 'http://localhost:11434',
 			ollamaModel: 'llama3.2:3b',
+			ollamaTimeoutMs: 240000,
 		});
 	});
 
@@ -69,5 +71,15 @@ describe('loadConfig', () => {
 
 	it('Reads the Ollama model name from the environment.', () => {
 		expect(loadConfig({ OLLAMA_MODEL: ' qwen2.5:3b ' }).ollamaModel).toBe('qwen2.5:3b');
+	});
+
+	it('Reads the Ollama timeout from the environment.', () => {
+		expect(loadConfig({ OLLAMA_TIMEOUT_MS: '60000' }).ollamaTimeoutMs).toBe(60000);
+	});
+
+	it('Rejects an OLLAMA_TIMEOUT_MS that is not a positive whole number.', () => {
+		expect(() => loadConfig({ OLLAMA_TIMEOUT_MS: 'soon' })).toThrow(/Invalid OLLAMA_TIMEOUT_MS/);
+		expect(() => loadConfig({ OLLAMA_TIMEOUT_MS: '0' })).toThrow(/Invalid OLLAMA_TIMEOUT_MS/);
+		expect(() => loadConfig({ OLLAMA_TIMEOUT_MS: '1.5' })).toThrow(/Invalid OLLAMA_TIMEOUT_MS/);
 	});
 });

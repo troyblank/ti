@@ -134,7 +134,7 @@ When an architectural decision is made, document it here.
 * **CORS:** `ti` only allows browser origins listed in `CORS_ORIGIN`; `ti-web`'s origin must be added there.
 * **Docker:** `node:24-alpine` image running as the non-root `node` user, with a `/health` `HEALTHCHECK`. `docker-compose.yml` mounts `./data` for future PDF/index storage (git-ignored).
 * **Frontend (`ti-web`):** Vite + React 19 + TypeScript. API base URL comes from `VITE_TI_API_URL` (default `http://localhost:3000`). No data-fetching or UI libraries yet — add them when a feature needs them.
-* **API structure (`ti`):** `documents`, `chat` and `conversations` routers are mounted under `/api` as placeholders that respond `501 Not Implemented` until their roadmap step replaces them. Shared HTTP middleware lives in `src/middleware/`.
+* **API structure (`ti`):** `documents` and `conversations` routers are mounted under `/api` as placeholders that respond `501 Not Implemented` until their roadmap step replaces them. Shared HTTP middleware lives in `src/middleware/`.
 * **Error responses:** every error is JSON `{ "error": "<HTTP status text>" }`. Client (4xx) errors raised by middleware keep their status; everything else is logged and returned as a generic `500` so internals never leak.
 * **Testing:** `ti` uses Jest + supertest; `ti-web` uses Vitest + React Testing Library (Vitest handles `import.meta.env` natively under Vite). Both enforce 100% coverage.
 
@@ -144,6 +144,7 @@ When an architectural decision is made, document it here.
 * **Model:** configurable via `OLLAMA_MODEL`, defaulting to `llama3.2:3b` — the practical ceiling for a CPU-only NAS with 8–16GB RAM. Models are pulled manually once (`ollama pull`) and persisted in `./ollama` (a sibling of `./data`, so `ti` never sees them) so rebuilds don't re-download them.
 * **Network exposure:** Ollama is reachable by `ti` over the compose network (`http://ollama:11434`) and published on the Docker host's loopback only (`127.0.0.1:11434`) for verification and `yarn dev`. It is never exposed to the LAN or Internet; only `ti` talks to it.
 * **Configuration:** `ti` reads `OLLAMA_URL` and `OLLAMA_MODEL` in `src/config.ts` (validated like the other variables) so the Chat API can be built on them without further plumbing.
+* **Chat API:** `POST /api/chat` accepts `{ "message": "<text>" }` and returns `{ "message": "<assistant reply>" }`. It calls Ollama's `/api/chat` with `stream: false`, using `OLLAMA_URL` and `OLLAMA_MODEL`. There is no system prompt and no document context yet. A missing, non-string, or blank `message` is `400`; one over 4,000 characters (`MAX_MESSAGE_LENGTH`, about 1,000 tokens) is `413`, so prompts are never silently truncated by the model's context window. The Ollama request is cancelled if the client disconnects, and after `OLLAMA_TIMEOUT_MS` (default 240s, under Node fetch's own 300s limit) it is cancelled and the client receives `504`. If Ollama cannot be reached, returns an error status (its reason is logged), or returns an unexpected payload, the failure is logged and the client receives a generic `500`.
 
 ---
 

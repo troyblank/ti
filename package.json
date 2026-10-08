@@ -11,6 +11,7 @@
 	"scripts": {
 		"start": "node ./src/serve.ts",
 		"dev": "node --watch ./src/serve.ts",
+		"ollama": "docker compose up -d ollama",
 		"lint": "eslint . && tsc",
 		"test": "jest --coverage",
 		"package": "mkdir -p dist && tar -czf dist/ti-deploy.tar.gz --exclude='*.test.ts' Dockerfile .dockerignore docker-compose.yml .env.example package.json yarn.lock src"
