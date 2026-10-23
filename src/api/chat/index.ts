@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Config } from '../../config.ts';
 import { sendError } from '../../middleware/errors.ts';
-import { isRecord } from '../../utils/isRecord.ts';
+import { readNonBlankString } from '../../utils/readNonBlankString.ts';
 import { askOllama, type OllamaConfig } from './ollama.ts';
 
 export type ChatResponse = {
@@ -14,22 +14,14 @@ export type ChatConfig = OllamaConfig & Pick<Config, 'ollamaTimeoutMs'>;
 // never silently truncated and one request can't tie up the NAS's CPU for long.
 export const MAX_MESSAGE_LENGTH = 4000;
 
-const readUserMessage = (body: unknown): string | undefined => {
-	if (!isRecord(body) || typeof body.message !== 'string') {
-		return undefined;
-	}
-
-	const trimmed = body.message.trim();
-
-	return trimmed === '' ? undefined : trimmed;
-};
-
-// POST /api/chat — one message in, the local model's reply out. No documents yet.
+// POST / — one message in, the local model's reply out.
+// Mounted at /api/projects/:projectId/chat. The caller has already checked the project exists.
+// Document text is not included yet; grounding the reply in the project's PDFs arrives with RAG.
 export const createChatRouter = (config: ChatConfig): Router => {
 	const router = Router();
 
 	router.post('/', async (request, response) => {
-		const message = readUserMessage(request.body);
+		const message = readNonBlankString(request.body, 'message');
 
 		if (message === undefined) {
 			sendError(response, 400);
