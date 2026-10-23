@@ -1,15 +1,14 @@
 import cors from 'cors';
 import express, { type Express } from 'express';
-import type { ChatConfig } from './api/chat/index.ts';
-import type { DocumentsConfig } from './api/documents/index.ts';
 import { createApiRouter } from './api/index.ts';
 import { healthRouter } from './api/health/index.ts';
+import type { ProjectsConfig } from './api/projects/index.ts';
 import type { Config } from './config.ts';
 import { errorHandler, notFound } from './middleware/errors.ts';
 
 // Creates the Express application. Kept separate from `serve.ts` so tests can
 // exercise the app without binding to a port.
-export const createApp = (config: Pick<Config, 'corsOrigins'> & ChatConfig & DocumentsConfig): Express => {
+export const createApp = (config: Pick<Config, 'corsOrigins'> & ProjectsConfig): Express => {
 	const app = express();
 
 	app.disable('x-powered-by');

@@ -8,6 +8,9 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import multer from 'multer';
 import type { Config } from '../../config.ts';
 import { sendError } from '../../middleware/errors.ts';
+import { removeDirectoryQuietly, writeJsonFile } from '../../utils/stagedFiles.ts';
+import { requestProject } from '../projects/requestProject.ts';
+import { INCOMING_DIR, projectDocumentsDirectory } from '../projects/storage.ts';
 
 // The PDF spec allows the header anywhere in the first 1024 bytes.
 const PDF_HEADER_BYTES = 1024;
@@ -15,10 +18,8 @@ const PDF_MARKER = Buffer.from('%PDF-');
 const MAX_FILENAME_LENGTH = 255;
 const STORED_PDF_NAME = 'original.pdf';
 const METADATA_NAME = 'metadata.json';
-const DOCUMENTS_DIR = 'documents';
-// Uploads are assembled here and renamed into documents/ once complete, so a crash
+// Uploads are assembled in incoming/ and renamed under the project once complete, so a crash
 // mid-upload never leaves a half-written document where later steps will look.
-const INCOMING_DIR = 'incoming';
 
 export type DocumentMetadata = {
 	id: string;
@@ -35,25 +36,6 @@ type StagedDocument = {
 };
 
 class NotPdfError extends Error {}
-
-// Runs once at startup. Fails fast if DATA_DIR cannot be written, instead of every
-// upload failing with a 500, and clears uploads a previous run left unfinished.
-export const prepareDocumentStorage = async (dataDir: string): Promise<void> => {
-	const documents = path.join(dataDir, DOCUMENTS_DIR);
-	const incoming = path.join(dataDir, INCOMING_DIR);
-
-	try {
-		await fs.mkdir(documents, { recursive: true });
-		await fs.access(documents, fs.constants.W_OK);
-		await fs.rm(incoming, { recursive: true, force: true });
-		await fs.mkdir(incoming);
-	} catch (error) {
-		throw new Error(
-			`Cannot write to DATA_DIR "${dataDir}". Make sure the user running TI owns it (in Docker that is uid 1000).`,
-			{ cause: error },
-		);
-	}
-};
 
 // The caller's name is metadata only. It is never used as a path on disk.
 export const displayFilename = (original: string): string => {
@@ -150,25 +132,18 @@ const statusForUploadError = (error: unknown): number | undefined => {
 	return error.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
 };
 
-// Cleanup must not replace the upload's own result. The folder may already be
-// gone, and a failed removal still leaves the original status as the response.
-const removeDocument = (directory: string) => fs.rm(directory, { recursive: true, force: true }).catch(() => undefined);
-
-const writeMetadataFile = (filePath: string, metadata: DocumentMetadata) =>
-	fs.writeFile(filePath, `${JSON.stringify(metadata, null, '\t')}\n`, 'utf8');
-
 const storeDocument = async (
 	request: Request,
 	response: Response,
 	next: NextFunction,
 	error: unknown,
 	document: StagedDocument | undefined,
-	documentsDir: string,
+	dataDir: string,
 	writeMetadata: (filePath: string, metadata: DocumentMetadata) => Promise<void>,
 ) => {
 	if (error) {
 		if (document !== undefined) {
-			await removeDocument(document.directory);
+			await removeDirectoryQuietly(document.directory);
 		}
 
 		// The client hung up mid-upload. Nothing failed on our side and no one is listening.
@@ -207,24 +182,27 @@ const storeDocument = async (
 		};
 
 		await writeMetadata(path.join(document.directory, METADATA_NAME), metadata);
+
+		const documentsDir = projectDocumentsDirectory(dataDir, requestProject(response).id);
+
 		await fs.mkdir(documentsDir, { recursive: true });
 		await fs.rename(document.directory, path.join(documentsDir, document.id));
 		response.status(201).json(metadata);
 	} catch (failure) {
-		await removeDocument(document.directory);
+		await removeDirectoryQuietly(document.directory);
 
 		throw failure;
 	}
 };
 
-// POST /api/documents — store one PDF under DATA_DIR and return its metadata.
-// Bytes are kept as documents/<id>/original.pdf, so a filename can never choose a path.
+// POST / — store one PDF under the project and return its metadata.
+// Mounted at /api/projects/:projectId/documents. The caller has already checked the project exists.
+// Bytes are kept as projects/<projectId>/documents/<id>/original.pdf, so a filename can never choose a path.
 export const createDocumentsRouter = (
 	{ dataDir, maxPdfBytes }: DocumentsConfig,
-	writeMetadata: (filePath: string, metadata: DocumentMetadata) => Promise<void> = writeMetadataFile,
+	writeMetadata: (filePath: string, metadata: DocumentMetadata) => Promise<void> = writeJsonFile,
 ): Router => {
 	const router = Router();
-	const documentsDir = path.join(dataDir, DOCUMENTS_DIR);
 	const staged = new WeakMap<Request, StagedDocument>();
 
 	const stage = async (request: Request): Promise<StagedDocument> => {
@@ -246,7 +224,7 @@ export const createDocumentsRouter = (
 
 	router.post('/', (request, response, next) => {
 		upload(request, response, (uploadError?: unknown) => {
-			void storeDocument(request, response, next, uploadError, staged.get(request), documentsDir, writeMetadata).catch(next);
+			void storeDocument(request, response, next, uploadError, staged.get(request), dataDir, writeMetadata).catch(next);
 		});
 	});
 

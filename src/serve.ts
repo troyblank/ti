@@ -1,12 +1,12 @@
 import 'dotenv/config';
 
-import { prepareDocumentStorage } from './api/documents/index.ts';
+import { prepareStorage } from './api/projects/storage.ts';
 import { createApp } from './app.ts';
 import { loadConfig } from './config.ts';
 
 const config = loadConfig();
 
-await prepareDocumentStorage(config.dataDir);
+await prepareStorage(config.dataDir);
 
 const app = createApp(config);
 

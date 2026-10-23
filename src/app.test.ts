@@ -48,6 +48,20 @@ const mockHangingOllama = () => {
 describe('TI API', () => {
 	const app = createApp(config);
 
+	const createProject = async (target: ReturnType<typeof createApp> = app) => {
+		const response = await request(target).post('/api/projects').send({ name: 'Frosthaven' });
+
+		expect(response.status).toBe(201);
+
+		return response.body.id as string;
+	};
+
+	const chatPath = async (target: ReturnType<typeof createApp> = app) => {
+		const projectId = await createProject(target);
+
+		return `/api/projects/${projectId}/chat`;
+	};
+
 	afterEach(() => {
 		jest.restoreAllMocks();
 	});
@@ -116,11 +130,11 @@ describe('TI API', () => {
 		});
 	});
 
-	describe('POST /api/chat', () => {
+	describe('POST /api/projects/:projectId/chat', () => {
 		it('Returns the local model reply for a message.', async () => {
 			mockOllamaReply({ message: { role: 'assistant', content: 'Hi there.' } });
 
-			const response = await request(app).post('/api/chat').send({ message: '  Hello  ' });
+			const response = await request(app).post(await chatPath()).send({ message: '  Hello  ' });
 
 			expect(response.status).toBe(200);
 			expect(response.headers['content-type']).toMatch(/application\/json/);
@@ -143,14 +157,13 @@ describe('TI API', () => {
 			['the message is not text', { message: 42 }],
 			['the body is a list', []],
 			// JSON `null` and bare numbers are rejected by `express.json()` before the route runs;
-			// kept here to pin the HTTP contract. The route's own guard is covered by `isRecord`'s tests.
+			// kept here to pin the HTTP contract. The route's own guard is covered by `readNonBlankString`'s tests.
 			['the body is JSON null', null],
 			['the body is a bare number', 42],
 		])('Responds with a JSON 400 when %s.', async (_label, body) => {
 			const fetchMock = jest.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('should not be called'));
 
-			const response = await request(app)
-				.post('/api/chat')
+			const response = await request(app).post(await chatPath())
 				.set('Content-Type', 'application/json')
 				.send(JSON.stringify(body));
 
@@ -160,10 +173,22 @@ describe('TI API', () => {
 		});
 
 		it('Responds with a JSON 404 when chat is called with a method other than POST.', async () => {
-			const response = await request(app).get('/api/chat');
+			const projectId = await createProject();
+
+			const response = await request(app).get(`/api/projects/${projectId}/chat`);
 
 			expect(response.status).toBe(404);
 			expect(response.body).toEqual({ error: 'Not Found' });
+		});
+
+		it('Responds with a JSON 404 for the old chat route and does not ask the model.', async () => {
+			const fetchMock = jest.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('should not be called'));
+
+			const response = await request(app).post('/api/chat').send({ message: 'Hello' });
+
+			expect(response.status).toBe(404);
+			expect(response.body).toEqual({ error: 'Not Found' });
+			expect(fetchMock).not.toHaveBeenCalled();
 		});
 
 		it('Responds with a generic JSON 500 when the local model cannot be reached.', async () => {
@@ -171,7 +196,7 @@ describe('TI API', () => {
 			const failure = new Error('connect ECONNREFUSED');
 			jest.spyOn(globalThis, 'fetch').mockRejectedValue(failure);
 
-			const response = await request(app).post('/api/chat').send({ message: 'Hello' });
+			const response = await request(app).post(await chatPath()).send({ message: 'Hello' });
 
 			expect(response.status).toBe(500);
 			expect(response.body).toEqual({ error: 'Internal Server Error' });
@@ -185,7 +210,7 @@ describe('TI API', () => {
 			const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
 			mockOllama();
 
-			const response = await request(app).post('/api/chat').send({ message: 'Hello' });
+			const response = await request(app).post(await chatPath()).send({ message: 'Hello' });
 
 			expect(response.status).toBe(500);
 			expect(response.body).toEqual({ error: 'Internal Server Error' });
@@ -195,9 +220,7 @@ describe('TI API', () => {
 		it('Responds with a JSON 413 when the message is too long for the model.', async () => {
 			const fetchMock = jest.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('should not be called'));
 
-			const response = await request(app)
-				.post('/api/chat')
-				.send({ message: 'a'.repeat(MAX_MESSAGE_LENGTH + 1) });
+			const response = await request(app).post(await chatPath()).send({ message: 'a'.repeat(MAX_MESSAGE_LENGTH + 1) });
 
 			expect(response.status).toBe(413);
 			expect(response.body).toEqual({ error: 'Payload Too Large' });
@@ -207,9 +230,7 @@ describe('TI API', () => {
 		it('Accepts a message exactly at the length limit.', async () => {
 			mockOllamaReply({ message: { role: 'assistant', content: 'Ok.' } });
 
-			const response = await request(app)
-				.post('/api/chat')
-				.send({ message: 'a'.repeat(MAX_MESSAGE_LENGTH) });
+			const response = await request(app).post(await chatPath()).send({ message: 'a'.repeat(MAX_MESSAGE_LENGTH) });
 
 			expect(response.status).toBe(200);
 		});
@@ -219,7 +240,7 @@ describe('TI API', () => {
 			const { aborted } = mockHangingOllama();
 			const impatientApp = createApp({ ...config, ollamaTimeoutMs: 20 });
 
-			const response = await request(impatientApp).post('/api/chat').send({ message: 'Hello' });
+			const response = await request(impatientApp).post(await chatPath(impatientApp)).send({ message: 'Hello' });
 
 			expect(response.status).toBe(504);
 			expect(response.body).toEqual({ error: 'Gateway Timeout' });
@@ -231,7 +252,7 @@ describe('TI API', () => {
 			const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
 			const { aborted } = mockHangingOllama();
 
-			await expect(request(app).post('/api/chat').send({ message: 'Hello' }).timeout(20)).rejects.toThrow(/Timeout/);
+			await expect(request(app).post(await chatPath()).send({ message: 'Hello' }).timeout(20)).rejects.toThrow(/Timeout/);
 			await aborted;
 
 			expect(consoleError).not.toHaveBeenCalled();
@@ -240,7 +261,7 @@ describe('TI API', () => {
 
 	describe('Request bodies', () => {
 		it('Responds with a JSON 400 when the body is malformed JSON.', async () => {
-			const response = await request(app).post('/api/chat').set('Content-Type', 'application/json').send('{ not json');
+			const response = await request(app).post(await chatPath()).set('Content-Type', 'application/json').send('{ not json');
 
 			expect(response.status).toBe(400);
 			expect(response.body).toEqual({ error: 'Bad Request' });
