@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import request from 'supertest';
 import { MAX_MESSAGE_LENGTH } from './api/chat/index.ts';
@@ -6,7 +8,14 @@ import { createApp } from './app.ts';
 const ORIGIN = 'http://localhost:5173';
 const OLLAMA_URL = 'http://ollama.test:11434';
 const OLLAMA_MODEL = 'llama3.2:3b';
-const config = { corsOrigins: [ORIGIN], ollamaUrl: OLLAMA_URL, ollamaModel: OLLAMA_MODEL, ollamaTimeoutMs: 60_000 };
+const config = {
+	corsOrigins: [ORIGIN],
+	ollamaUrl: OLLAMA_URL,
+	ollamaModel: OLLAMA_MODEL,
+	ollamaTimeoutMs: 60_000,
+	dataDir: path.join(tmpdir(), 'ti-app-test'),
+	maxPdfBytes: 1024,
+};
 
 const mockOllamaReply = (body: unknown, status = 200) =>
 	jest.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -93,15 +102,15 @@ describe('TI API', () => {
 
 
 	describe('Planned API areas', () => {
-		it.each(['/api/documents', '/api/conversations'])('Responds to %s with a JSON 501 until it is built.', async (path) => {
-			const response = await request(app).post(path).send({});
+		it('Responds to /api/conversations with a JSON 501 until it is built.', async () => {
+			const response = await request(app).post('/api/conversations').send({});
 
 			expect(response.status).toBe(501);
 			expect(response.body).toEqual({ error: 'Not Implemented' });
 		});
 
 		it('Responds with a 501 for nested paths under a planned area.', async () => {
-			const response = await request(app).get('/api/documents/123');
+			const response = await request(app).get('/api/conversations/123');
 
 			expect(response.status).toBe(501);
 		});

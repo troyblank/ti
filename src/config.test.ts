@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, expect, it } from '@jest/globals';
 import { loadConfig } from './config.ts';
 
@@ -10,16 +11,30 @@ describe('loadConfig', () => {
 			ollamaUrl: 'http://localhost:11434',
 			ollamaModel: 'llama3.2:3b',
 			ollamaTimeoutMs: 240000,
+			dataDir: path.resolve('data'),
+			maxPdfBytes: 100 * 1024 * 1024,
 		});
 	});
 
-	it('Treats blank PORT, HOST, OLLAMA_URL, OLLAMA_MODEL and OLLAMA_TIMEOUT_MS values as unset.', () => {
-		expect(loadConfig({ PORT: '  ', HOST: '  ', OLLAMA_URL: '  ', OLLAMA_MODEL: '  ', OLLAMA_TIMEOUT_MS: '  ' })).toMatchObject({
+	it('Treats blank PORT, HOST, OLLAMA_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT_MS, DATA_DIR and MAX_PDF_BYTES values as unset.', () => {
+		expect(
+			loadConfig({
+				PORT: '  ',
+				HOST: '  ',
+				OLLAMA_URL: '  ',
+				OLLAMA_MODEL: '  ',
+				OLLAMA_TIMEOUT_MS: '  ',
+				DATA_DIR: '  ',
+				MAX_PDF_BYTES: '  ',
+			}),
+		).toMatchObject({
 			port: 3000,
 			host: '0.0.0.0',
 			ollamaUrl: 'http://localhost:11434',
 			ollamaModel: 'llama3.2:3b',
 			ollamaTimeoutMs: 240000,
+			dataDir: path.resolve('data'),
+			maxPdfBytes: 100 * 1024 * 1024,
 		});
 	});
 
@@ -81,5 +96,21 @@ describe('loadConfig', () => {
 		expect(() => loadConfig({ OLLAMA_TIMEOUT_MS: 'soon' })).toThrow(/Invalid OLLAMA_TIMEOUT_MS/);
 		expect(() => loadConfig({ OLLAMA_TIMEOUT_MS: '0' })).toThrow(/Invalid OLLAMA_TIMEOUT_MS/);
 		expect(() => loadConfig({ OLLAMA_TIMEOUT_MS: '1.5' })).toThrow(/Invalid OLLAMA_TIMEOUT_MS/);
+	});
+
+	it('Reads the document directory from the environment, resolving relative paths.', () => {
+		expect(loadConfig({ DATA_DIR: 'pdfs' }).dataDir).toBe(path.resolve('pdfs'));
+		expect(loadConfig({ DATA_DIR: ' /tmp/ti-data ' }).dataDir).toBe('/tmp/ti-data');
+	});
+
+	it('Reads the maximum PDF size from the environment.', () => {
+		expect(loadConfig({ MAX_PDF_BYTES: '4096' }).maxPdfBytes).toBe(4096);
+	});
+
+	it('Rejects a MAX_PDF_BYTES that is not a positive whole number.', () => {
+		expect(() => loadConfig({ MAX_PDF_BYTES: 'huge' })).toThrow(/Invalid MAX_PDF_BYTES/);
+		expect(() => loadConfig({ MAX_PDF_BYTES: '0' })).toThrow(/Invalid MAX_PDF_BYTES/);
+		expect(() => loadConfig({ MAX_PDF_BYTES: '-5' })).toThrow(/Invalid MAX_PDF_BYTES/);
+		expect(() => loadConfig({ MAX_PDF_BYTES: '1.5' })).toThrow(/Invalid MAX_PDF_BYTES/);
 	});
 });

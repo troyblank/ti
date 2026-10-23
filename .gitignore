@@ -21,6 +21,7 @@ dist/
 # DATA (uploaded PDFs, indexes, etc. — never commit) #
 ######################################################
 data/
+*.pdf
 
 # OLLAMA MODELS (docker-compose volume) #
 #########################################
@@ -35,6 +36,8 @@ ollama/
 .Trashes
 ehthumbs.db
 Thumbs.db
+# Windows "downloaded from the Internet" markers created when copying files into WSL
+*:Zone.Identifier
 .vscode
 .history
 coverage

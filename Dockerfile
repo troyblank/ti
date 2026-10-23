@@ -14,12 +14,17 @@ FROM node:24-alpine
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
+ENV DATA_DIR=/app/data
 
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./
 COPY src ./src
+
+# The compose file mounts the host data folder here. Create it so a container
+# started without that mount can still boot; a mount replaces this directory.
+RUN mkdir -p /app/data && chown node:node /app/data
 
 # Node 24 strips TypeScript types natively, so no build step is required.
 # Run as the non-root user that ships with the official image.
