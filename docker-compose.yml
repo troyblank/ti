@@ -16,7 +16,11 @@ services:
       OLLAMA_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
       OLLAMA_TIMEOUT_MS: ${OLLAMA_TIMEOUT_MS:-240000}
-    # Uploaded PDFs and indexes will live here in later phases.
+      # The mount below is /app/data inside the container. Do not take DATA_DIR
+      # from the host .env: that path is for `yarn dev`, not for this container.
+      DATA_DIR: /app/data
+      MAX_PDF_BYTES: ${MAX_PDF_BYTES:-104857600}
+    # Uploaded PDFs (and, later, indexes) live on the host's ./data.
     volumes:
       - ./data:/app/data
 

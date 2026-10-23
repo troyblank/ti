@@ -14,7 +14,8 @@ The AI and document data should remain on privately controlled infrastructure wh
 
 * Run the AI locally on a Synology NAS.
 * Allow users to upload PDF documents.
-* Ask natural-language questions about those documents.
+* Organize documents into projects (e.g. one per board game), each with its own chat.
+* Ask natural-language questions about a project's documents.
 * Use RAG rather than training a model on the documents.
 * Return useful source/page citations.
 * Do not require Internet access for the AI itself.
@@ -56,6 +57,7 @@ Responsibilities:
 
 * User interface
 * Authentication
+* Project list
 * PDF upload UI
 * Document library
 * Chat interface
@@ -134,7 +136,7 @@ When an architectural decision is made, document it here.
 * **CORS:** `ti` only allows browser origins listed in `CORS_ORIGIN`; `ti-web`'s origin must be added there.
 * **Docker:** `node:24-alpine` image running as the non-root `node` user, with a `/health` `HEALTHCHECK`. `docker-compose.yml` mounts `./data` for future PDF/index storage (git-ignored).
 * **Frontend (`ti-web`):** Vite + React 19 + TypeScript. API base URL comes from `VITE_TI_API_URL` (default `http://localhost:3000`). No data-fetching or UI libraries yet — add them when a feature needs them.
-* **API structure (`ti`):** `documents` and `conversations` routers are mounted under `/api` as placeholders that respond `501 Not Implemented` until their roadmap step replaces them. Shared HTTP middleware lives in `src/middleware/`.
+* **API structure (`ti`):** feature routers are mounted under `/api`. `conversations` stays a `501` placeholder until its roadmap step. `documents` was the same until Phase 3. Shared HTTP middleware lives in `src/middleware/`.
 * **Error responses:** every error is JSON `{ "error": "<HTTP status text>" }`. Client (4xx) errors raised by middleware keep their status; everything else is logged and returned as a generic `500` so internals never leak.
 * **Testing:** `ti` uses Jest + supertest; `ti-web` uses Vitest + React Testing Library (Vitest handles `import.meta.env` natively under Vite). Both enforce 100% coverage.
 
@@ -146,13 +148,20 @@ When an architectural decision is made, document it here.
 * **Configuration:** `ti` reads `OLLAMA_URL` and `OLLAMA_MODEL` in `src/config.ts` (validated like the other variables) so the Chat API can be built on them without further plumbing.
 * **Chat API:** `POST /api/chat` accepts `{ "message": "<text>" }` and returns `{ "message": "<assistant reply>" }`. It calls Ollama's `/api/chat` with `stream: false`, using `OLLAMA_URL` and `OLLAMA_MODEL`. There is no system prompt and no document context yet. A missing, non-string, or blank `message` is `400`; one over 4,000 characters (`MAX_MESSAGE_LENGTH`, about 1,000 tokens) is `413`, so prompts are never silently truncated by the model's context window. The Ollama request is cancelled if the client disconnects, and after `OLLAMA_TIMEOUT_MS` (default 240s, under Node fetch's own 300s limit) it is cancelled and the client receives `504`. If Ollama cannot be reached, returns an error status (its reason is logged), or returns an unexpected payload, the failure is logged and the client receives a generic `500`.
 
+## Phase 3
+
+* **Document storage:** Each upload is a directory `documents/<uuid>/` inside `DATA_DIR` (default `./data`, git-ignored). Docker sets `DATA_DIR=/app/data`, which `docker-compose.yml` mounts from `./data` — on the Synology that folder sits next to the compose file. Uploads are written to `incoming/<uuid>/` and renamed into `documents/` only after the metadata is saved, so an interrupted upload never appears as a document; `incoming/` is cleared at startup. At startup the API also checks that `DATA_DIR` is writable and exits with a clear message if it is not (a Docker-created `./data` is root-owned). The PDF is stored as `original.pdf`. The caller's filename is metadata only and is never used as a filesystem path, so an upload cannot choose where the bytes land. Nothing under `data/` is committed.
+* **Metadata:** `metadata.json` beside the PDF holds `id`, `filename` (the base name, at most 255 characters), `size`, and `uploadedAt`. It stores no absolute path, so the same folder can move between a laptop and the NAS. Uploading the same file again creates a new id.
+* **Upload API:** `POST /api/documents` takes `multipart/form-data` with one field, `file`. Success is `201` and that metadata. A missing file, a file sent under another field name, more than one file, or any extra form field is `400` (extra fields are refused so a request cannot buffer unbounded text in memory). A body over `MAX_PDF_BYTES` (default 100 MiB) is `413`. A file whose first 1024 bytes do not contain the `%PDF-` marker is `415`; this is checked while streaming, before the rest is written. Filenames are read as UTF-8, and any client-sent directory is dropped. A client that disconnects mid-upload is cleaned up without being logged as an error. This step only stores the PDF. Chat does not read documents yet. Projects (roadmap step 7) are next and will move uploads under a project.
+* **Local uploads:** `yarn dev` writes into `./data` on the machine running the API. Ollama does not need to be running. Upload with `curl -F "file=@/absolute/path/to/file.pdf" http://localhost:3000/api/documents`. The PDF stays wherever it already lives; the path after `@` only has to be readable by that process. Do not put PDFs in the git repo.
+
 ---
 
 # Development Roadmap
 
 ## Phase 1 — Application Foundation
 
-### 1. Basic API
+### 1. Basic API ✅
 
 Create the initial Dockerized API.
 
@@ -180,7 +189,7 @@ GET /health
 
 ---
 
-### 2. API Structure
+### 2. API Structure ✅
 
 Establish a clean structure for future API functionality.
 
@@ -198,7 +207,7 @@ Do not implement unnecessary functionality yet.
 
 ---
 
-### 3. Connect `ti-web`
+### 3. Connect `ti-web` ✅
 
 Create the initial communication between:
 
@@ -212,7 +221,7 @@ The frontend should be able to call `/health` and display the result.
 
 # Phase 2 — Local AI
 
-### 4. Add Ollama
+### 4. Add Ollama ✅
 
 Run Ollama locally through Docker or the appropriate Synology configuration.
 
@@ -224,7 +233,7 @@ Goals:
 
 ---
 
-### 5. Create Chat API
+### 5. Create Chat API ✅
 
 Add an endpoint similar to:
 
@@ -248,7 +257,7 @@ At this stage, there is no PDF/RAG functionality yet.
 
 # Phase 3 — PDF Processing
 
-### 6. PDF Upload
+### 6. PDF Upload ✅
 
 Add:
 
@@ -267,7 +276,39 @@ Requirements:
 
 ---
 
-### 7. PDF Text Extraction
+### 7. Projects
+
+Group documents into projects. A project is one subject — for example, one board game — with its own rulebooks, FAQs, and chat.
+
+Questions asked in a project must only be answered from that project's documents.
+
+Proposed shape (finalize as a Decision when implemented):
+
+```text
+POST /api/projects                        create a project
+GET  /api/projects                        list projects
+POST /api/projects/:projectId/documents   upload a PDF into a project (replaces POST /api/documents)
+POST /api/projects/:projectId/chat        ask a question within a project (replaces POST /api/chat)
+```
+
+Storage:
+
+```text
+data/projects/<projectId>/project.json
+data/projects/<projectId>/documents/<documentId>/original.pdf
+data/projects/<projectId>/documents/<documentId>/metadata.json
+```
+
+Requirements:
+
+* Generate a project ID; the project's display name is metadata only, never a path.
+* Every document belongs to exactly one project.
+* Uploading to a project that does not exist is `404`.
+* Documents uploaded before this step are not migrated; re-upload them into a project.
+
+---
+
+### 8. PDF Text Extraction
 
 Extract text from uploaded PDFs.
 
@@ -275,7 +316,7 @@ The system should preserve page boundaries so citations can eventually identify 
 
 ---
 
-### 8. OCR
+### 9. OCR
 
 Add OCR support for PDFs that contain scanned/image-based pages.
 
@@ -285,12 +326,13 @@ The system should determine whether normal text extraction is sufficient before 
 
 # Phase 4 — RAG
 
-### 9. Document Chunking
+### 10. Document Chunking
 
 Split extracted document text into chunks appropriate for embedding and retrieval.
 
 Chunks should retain metadata such as:
 
+* Project ID
 * Document ID
 * Filename
 * Page number
@@ -298,7 +340,7 @@ Chunks should retain metadata such as:
 
 ---
 
-### 10. Embeddings
+### 11. Embeddings
 
 Use a local embedding model.
 
@@ -306,7 +348,7 @@ The embedding model should run locally rather than sending document content to a
 
 ---
 
-### 11. Vector Database
+### 12. Vector Database
 
 Select and integrate a vector database.
 
@@ -323,12 +365,12 @@ Do not choose a vector database until the requirements are clearer.
 
 ---
 
-### 12. RAG Chat
+### 13. RAG Chat
 
-Update `/chat` so that questions:
+Update the project chat endpoint so that questions:
 
 1. Generate a query embedding.
-2. Search the document collection.
+2. Search only the current project's documents.
 3. Retrieve relevant chunks.
 4. Provide those chunks to the local LLM.
 5. Generate an answer.
@@ -385,9 +427,9 @@ Goals:
 * Backend token validation
 * User identity
 
-Documents should be associated with the authenticated user.
+Projects should be associated with the authenticated user. Documents belong to a project, so they inherit its owner.
 
-The backend must enforce document ownership.
+The backend must enforce project and document ownership.
 
 ---
 
@@ -425,7 +467,7 @@ Potential future features:
 
 * Document library
 * Delete/re-index documents
-* Multiple document collections
-* Conversation history
+* Rename/delete projects
+* Conversation history (per project)
 * Rename documents
 * Search document
